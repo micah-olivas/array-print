@@ -1,6 +1,29 @@
 <img src="images/array_print.png" alt="Array Print" align="right"/>
 
 # Array Print
-Interactive python notebook used in generating print inputs for a Scienion liquid-handling robot.
 
-<code>Array Print</code> takes a <code>.csv</code> containing a MITOMI-assayable library in a 384-well layout and returns a Scienion-compatible <code>.fld</code> file and a <code>.csv</code> record of the array layout. Array Print optimizes the number of biological replicates that appear in the experiment and their placement within the print array to control for cross-chamber contamination during MITOMI experiments. If prior information about the reactivity of library members exists, the user may bin members by acitivity level and Array Print will prioritize placing less reactive members upstream on the array to minimize contamination along the flowpath.
+Generates optimized print layouts for Scienion liquid-handling robots.
+
+## Overview
+
+Takes a `.csv` library file and generates Scienion-compatible `.fld` files with optimized biological replicate placement. Includes visualization and quality control metrics.
+
+## Structure
+
+- `template.ipynb` - Main workflow notebook
+- `utils.py` - Core utility functions (array filling, plate conversion, file I/O)
+- `viz.py` - Visualization functions (frequency plots, position maps, heatmaps)
+
+## Usage
+
+1. Install: `pip install -r requirements.txt`
+2. Configure project settings in `template.ipynb`
+3. Set input CSV path with columns: Plate, Well, Name, Rank, Block
+4. Run notebook to generate `.fld` file and analysis plots
+
+## Output
+
+Results saved to `~/my-prints/[project-name]/` containing:
+- Timestamped `.fld` print file
+- Frequency and position visualization plots
+- Print metrics summary
