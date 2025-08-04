@@ -6,7 +6,7 @@ A Python package for generating optimized printing inputs for Scienion liquid-ha
 
 ## Overview
 
-Takes a `.csv` library file and generates Scienion-compatible `.fld` files with optimized biological replicate placement. Includes visualization and quality control metrics.
+Takes a `.csv` library file and generates Scienion-compatible `.fld` files that optimize sample placement for arrayed microfluidics experiments (e.g. [MITOMI](https://www.fordycelab.com/research-2019)). Includes visualization and quality control metrics.
 
 ## Installation
 
