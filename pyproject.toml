@@ -11,7 +11,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Micah Olivas", email = "mbolivas@stanford.edu"}
 ]
-keywords = ["scienion", "array", "print", "mitomi", "bioinformatics"]
+keywords = ["microfluidics", "biophysics", "liquid-handling", "mitomi", "scienion"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
