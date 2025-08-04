@@ -2,7 +2,7 @@
 
 # Array Print
 
-A Python package for generating optimized print layouts for Scienion liquid-handling robots.
+A Python package for generating optimized printing inputs for Scienion liquid-handling robots.
 
 ## Overview
 
