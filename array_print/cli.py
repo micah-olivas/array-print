@@ -77,13 +77,22 @@ def _run_pipeline(
     metrics = get_print_metrics(print_array)
     print_metrics_summary(metrics)
 
+    # Map well IDs → variant names for all visualizations
+    if 'plate_well' in library_df.columns and 'Name' in library_df.columns:
+        well_to_name = library_df.set_index('plate_well')['Name'].to_dict()
+        display_array = np.vectorize(
+            lambda w: well_to_name.get(w, w) if w != '' else ''
+        )(print_array)
+    else:
+        display_array = print_array
+
     if plots:
         typer.echo("Generating plots…")
-        plot_replicate_histogram(print_array, export_dir)
-        plot_array_heatmap(print_array)
+        plot_replicate_histogram(display_array, export_dir)
+        plot_array_heatmap(display_array)
 
     typer.echo("Generating dashboard…")
-    generate_dashboard(print_array, metrics, project_name, export_dir)
+    generate_dashboard(display_array, metrics, project_name, export_dir)
 
     print_df = pd.DataFrame(np.flip(print_array, axis=1))
     write_fld(project_name, print_df, print_df.shape[1], print_df.shape[0], export_dir)

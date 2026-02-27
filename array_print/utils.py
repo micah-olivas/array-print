@@ -303,9 +303,8 @@ def generate_print_array(library_df, columns=32, rows=56, skip_rows=True,
     """
     # Set size of device
     if skip_rows:
-        rows = int(rows / 2)  # accounts for skipped rows
-        total_chambers = int((columns * rows) / 2)  # account for skipped rows
-        rows = rows / 2
+        rows = int(rows / 2)  # data rows = half the physical rows
+        total_chambers = columns * rows
     else:
         total_chambers = columns * rows
 
@@ -313,11 +312,8 @@ def generate_print_array(library_df, columns=32, rows=56, skip_rows=True,
     num_sequences = len(library_df['Name'].unique())
     max_replicates = int(total_chambers / num_sequences)  # round down to nearest integer
 
-    # Create print array object of strings
+    # Create print array object of strings (1D; reshape happens after fill)
     print_array = np.empty(total_chambers, dtype='object')
-
-    # Reshape print array into 2D array
-    print_array = print_array.reshape(print_array.shape[0] // columns, columns)
 
     if using_blocked_device:
         # Create a dictionary to store the blocks
@@ -344,6 +340,7 @@ def generate_print_array(library_df, columns=32, rows=56, skip_rows=True,
         print_array = np.concatenate(list(block_dict.values()), axis=1)
     else:
         print_array = fill_array(library_df, print_array, catalytic_binning)
+        print_array = print_array.reshape(total_chambers // columns, columns)
 
     # Add blank rows to print array
     if skip_rows:

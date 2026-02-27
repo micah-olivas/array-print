@@ -29,14 +29,16 @@ from .viz import (
     plot_mutant_position,
     plot_plate_layouts,
     plot_array_heatmap,
-    modify_array_column
+    modify_array_column,
+    plot_replicate_histogram,
+    generate_dashboard,
 )
 
 # Define what gets imported with "from array_print import *"
 __all__ = [
     # Core functionality
     "generate_print_array",
-    "get_print_metrics", 
+    "get_print_metrics",
     "print_metrics_summary",
     "create_project_directory",
     "write_fld",
@@ -48,5 +50,7 @@ __all__ = [
     "plot_mutant_position",
     "plot_plate_layouts",
     "plot_array_heatmap",
-    "modify_array_column"
+    "modify_array_column",
+    "plot_replicate_histogram",
+    "generate_dashboard",
 ]

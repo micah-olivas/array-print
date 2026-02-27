@@ -24,8 +24,9 @@ pip install -e ".[jupyter]"
 ```
 
 ### Requirements
-- Python ≥3.8
+- Python ≥3.8 (3.11 recommended)
 - Core dependencies: numpy, pandas, matplotlib, seaborn
+- CLI dependencies: typer, questionary (installed automatically)
 - Optional: Jupyter notebook support
 
 ## Package Structure
@@ -33,6 +34,7 @@ pip install -e ".[jupyter]"
 ```
 array_print/
 ├── __init__.py     # Main package with exported functions
+├── cli.py          # Command-line interface (array-print command)
 ├── utils.py        # Core utility functions (array generation, file I/O)
 └── viz.py          # Visualization functions (plots, heatmaps)
 ```
@@ -43,6 +45,7 @@ array_print/
 ```python
 import array_print as ap
 import pandas as pd
+import numpy as np
 
 # Load your library data
 library_df = pd.read_csv('your_library.csv')
@@ -64,23 +67,66 @@ metrics = ap.get_print_metrics(print_array)
 ap.print_metrics_summary(metrics)
 
 # Export FLD file
-ap.write_fld('my-project', print_array, 32, 56, export_dir)
+print_df = pd.DataFrame(np.flip(print_array, axis=1))
+ap.write_fld('my-project', print_df, 32, 56, export_dir)
+```
+
+### From the command line
+
+**Interactive wizard** (no arguments — guides you through each step):
+```bash
+array-print
+```
+
+**Non-interactive** (good for scripts):
+```bash
+array-print my-project library.csv
+array-print my-project library.csv --preset mitomi-ps1.8k
+array-print my-project library.csv --no-plots --catalytic-binning
+array-print my-project library.csv --preset custom --columns 40 --rows 64
+```
+
+**All options:**
+```
+--preset            Device preset [default: mitomi-ps1.8k] | use 'custom' with --columns/--rows
+--columns           Number of columns (overrides preset)
+--rows              Number of rows (overrides preset)
+--skip-rows         Insert blank rows between samples [default: on]
+--catalytic-binning Sort by catalytic rank before filling [default: off]
+--plots             Generate visualization plots [default: on]
 ```
 
 ### Using the Template Notebook
 1. Open `template.ipynb`
 2. Configure project settings (file paths, device parameters)
-3. Set input CSV path with required columns: Plate, Well, Name, Rank, Block
+3. Set input CSV path with required columns: `Name`, `Plate`, `Well`
 4. Run all cells to generate complete analysis
 
 ## Input Format
 
-Your CSV file should contain:
-- **Plate**: Plate number (int)
-- **Well**: Well position (e.g., 'A1', 'B5')
-- **Name**: Variant/mutant name
-- **Rank**: Priority ranking for placement
-- **Block**: Block assignment for blocked devices
+Your CSV file must contain the following columns:
+
+| Column | Type | Description |
+|---|---|---|
+| `Name` | string | Variant / mutant identifier (e.g. `K304E`) |
+| `Plate` | int | Source plate number |
+| `Well` | string | Well position on the source plate (e.g. `A1`, `B12`) |
+
+Optional columns:
+
+| Column | Type | Description |
+|---|---|---|
+| `Block` | int (1–4) | Block assignment for blocked-device layout (required with `--blocked-device`) |
+| `cat_rank` | int | Catalytic rank; lower = higher priority placement (required with `--catalytic-binning`) |
+
+**Example:**
+```csv
+Name,Plate,Well
+WT,1,A1
+K304E,1,A2
+R267E,2,A1
+E345A,2,A2
+```
 
 ## Output
 
@@ -97,7 +143,7 @@ Results saved to `~/my-prints/[project-name]/` containing:
 - `create_project_directory()` - Set up output directories
 - `write_fld()` - Export Scienion-compatible files
 
-### Visualization Functions  
+### Visualization Functions
 - `plot_mutant_frequency()` - Show variant distribution
 - `plot_mutant_position()` - Highlight specific variants
 - `plot_array_heatmap()` - Array occupancy visualization
