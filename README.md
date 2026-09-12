@@ -84,6 +84,7 @@ array-print my-project library.csv
 array-print my-project library.csv --preset mitomi-ps1.8k
 array-print my-project library.csv --no-plots --catalytic-binning
 array-print my-project library.csv --preset custom --columns 40 --rows 64
+array-print my-project library.csv --category-column scan_type
 ```
 
 **All options:**
@@ -94,7 +95,41 @@ array-print my-project library.csv --preset custom --columns 40 --rows 64
 --skip-rows         Insert blank rows between samples [default: on]
 --catalytic-binning Sort by catalytic rank before filling [default: off]
 --plots             Generate visualization plots [default: on]
+--category-column   Library column grouping variants (e.g. a scan name); each
+                    group gets its own hue family on the dashboard map
 ```
+
+The run writes `<project>_dashboard.html`, a sheet for checking the print before
+it goes on the robot. The header carries the run's figures — array size, fill,
+variant count, blocks, replicate range. Below that sit two charts and a map of
+the array.
+
+The first chart is the distribution of replicate counts, on an axis anchored at
+zero so it is clear how far the floor sits from nothing. The bar holding the
+least-replicated variants is called out, naming them when only a few are tied.
+The second chart gives each group's spread on the same horizontal scale — a thin
+line for the full range, a thicker one for the middle half, and a dot at the
+median — so a scan that came out short is visible against the distribution above
+it. Hovering any bar or row gives the underlying numbers.
+
+The fewest-replicated variants are marked in red only when they are an exception.
+In a library large enough that most variants land on the same floor, that floor
+is the design rather than a fault, and the count is reported without the alarm.
+
+On the map, hovering a spot holds that variant's positions at full colour and
+fades the rest, which shows whether its replicates are spread across the device
+or clustered in one region. When the library carries a `Block` column the array
+is printed in blocks of columns, and each block is labelled and underscored above
+the map rather than ruled through it.
+
+Pass `--category-column` when the library splits into groups — an alanine scan,
+a phenylalanine scan, controls — and each group is drawn in its own hue family,
+with shade separating the variants inside it. Groups past the eighth fold into
+one neutral "Other" rather than reusing a hue. Without the flag, spots are
+coloured by replicate count.
+
+Everything is inline SVG and Helvetica, with no external scripts, stylesheets or
+fonts, so the file opens with no network connection at all.
 
 ### Using the Template Notebook
 1. Open `template.ipynb`

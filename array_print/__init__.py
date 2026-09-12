@@ -21,7 +21,9 @@ from .utils import (
     write_fld,
     display_fld,
     get_96_to_384,
-    fill_array
+    fill_array,
+    parse_fld,
+    fld_to_pinlist,
 )
 
 from .viz import (
@@ -45,6 +47,8 @@ __all__ = [
     "display_fld",
     "get_96_to_384",
     "fill_array",
+    "parse_fld",
+    "fld_to_pinlist",
     # Visualization
     "plot_mutant_frequency",
     "plot_mutant_position",
