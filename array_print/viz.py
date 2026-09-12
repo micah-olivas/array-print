@@ -354,8 +354,12 @@ _MAP_JS = """
   function move(e) {
     var b = svg.getBoundingClientRect();
     if (!b.width || !b.height) return;
-    var c = Math.floor(((e.clientX - b.left) / b.width * VW - PL) / U);
-    var r = Math.floor(((e.clientY - b.top) / b.height * VH - PT) / U);
+    // The SVG letterboxes inside its box, so a screen point goes back through
+    // the same uniform scale and centring preserveAspectRatio applied.
+    var k = Math.min(b.width / VW, b.height / VH);
+    var ox = (b.width - VW * k) / 2, oy = (b.height - VH * k) / 2;
+    var c = Math.floor(((e.clientX - b.left - ox) / k - PL) / U);
+    var r = Math.floor(((e.clientY - b.top - oy) / k - PT) / U);
     var vi = (c < 0 || c >= C || r < 0 || r >= R) ? -1 : GRID[r * C + c];
 
     if (vi !== cur) {
@@ -424,7 +428,16 @@ _DASHBOARD_CSS = """
   --rule: #d0d9d6;
   --flag: #a81e3f;
   --grid: #eef1ef;
-  --avail: 520px;
+  /* Room the panels have below the header, measured at load and on resize. */
+  --avail: 600px;
+  /* Width the map panel spends on its legend, padding and border, so the rest
+     of its width can be handed to the array itself. */
+  --key-w: 228px;
+  /* Floor the chart panel keeps beside the map, its gap included. The map is
+     capped against this rather than left to shrink for it: a flex item with a
+     shrink factor below 1 stops short of the space it owes, which puts the
+     chart panel off the left edge of a wide window. */
+  --charts-min: 396px;
   --font-ui: Helvetica, 'Helvetica Neue', Arial, 'Liberation Sans', sans-serif;
 }
 
@@ -432,7 +445,8 @@ html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
-  padding: 22px clamp(16px, 3vw, 40px) 24px;
+  padding: 20px clamp(14px, 2.4vw, 36px) 22px;
+  min-height: 100dvh;
   background: var(--ground);
   color: var(--ink);
   font-family: var(--font-ui);
@@ -441,7 +455,16 @@ body {
   font-feature-settings: 'tnum' 1;
 }
 
-.sheet { max-width: 1180px; margin: 0 auto; }
+/* The sheet is one full-height column: the header takes the room it needs and
+   the panels below it get the rest. The array is then sized against the space
+   the window actually has rather than against a fixed page width. */
+.sheet {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 42px);
+  max-width: 1760px;
+  margin: 0 auto;
+}
 
 /* ── Header reads as a specimen label: name, then the run specification ────── */
 h1 {
@@ -492,21 +515,33 @@ h1 {
 
 
 
+/* Flex rather than grid: the map asks for the width its height and aspect ratio
+   call for and the charts take what is left, which a fixed pair of grid tracks
+   cannot express. Centring keeps an ultra-wide window from opening a gutter on
+   one side only. Never wraps -- wrapping is decided on basis sizes before any
+   shrinking, so the map would drop onto its own line while the charts still had
+   width to give up. The stacked rules below handle that case deliberately. */
 .layout {
-  display: grid;
-  grid-template-columns: minmax(260px, 520px) minmax(250px, 1fr);
-  gap: clamp(16px, 3vw, 44px);
-  align-items: start;
-  margin-top: 18px;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: clamp(14px, 2.2vw, 36px);
+  align-items: stretch;
+  justify-content: center;
+  flex: 1 1 0;
+  min-height: 0;
+  margin-top: 16px;
 }
 
 /* ── The array map: the one dark object on the page ───────────────────────── */
 .map {
-  max-height: var(--avail);
+  flex: 0 1 auto;
+  width: calc(var(--avail) * var(--chip-ratio) + var(--key-w));
+  min-width: min(320px, 100%);
+  max-width: calc(100% - var(--charts-min));
+  min-height: 0;
   display: flex;
   align-items: stretch;
-  justify-content: start;
-  min-width: 0;
+  justify-content: center;
   gap: 12px;
   background: var(--surface);
   border: 1px solid var(--rule);
@@ -514,18 +549,22 @@ h1 {
   padding: 10px 12px;
 }
 
-/* Label tracks are CSS grids over the same row and column counts as the SVG, so
-   they stay registered to the cells at any size while the text itself keeps a
-   fixed pixel size instead of shrinking with the map. */
+/* The array and its labels are one SVG, so they stay registered to each other
+   at any size. These boxes only hand it a space to fill; the fit script keeps
+   the label text a constant size on screen as that space changes. */
 .chip {
+  flex: 1 1 auto;
   min-width: 0;
-  --plot-h: max(220px, calc(min(var(--avail), 900px) - 56px));
-  --plot-w: calc(var(--plot-h) * var(--chip-ratio));
+  min-height: 0;
+  display: flex;
 }
 
-.plot { position: relative; width: var(--plot-w); max-width: 100%; }
+.plot { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; }
 
-#chip { display: block; width: 100%; height: auto; }
+/* The SVG fills whatever box the panel gives it and its own preserveAspectRatio
+   does the fitting, so the cells stay square and the map stays as large as the
+   box allows at any window shape. Nothing here needs a pixel measurement. */
+#chip { display: block; width: 100%; height: 100%; }
 
 #chip .cells { transition: opacity 170ms ease-out; }
 
@@ -537,7 +576,7 @@ h1 {
 
 #chip.masked #chip-mask { opacity: 0.78; }
 
-.tick { stroke: var(--ink); stroke-width: 1; }
+.tick { stroke: var(--ink); stroke-width: var(--tickw, 1); }
 
 .axlab {
   fill: var(--ink-muted);
@@ -554,7 +593,7 @@ h1 {
   font-family: var(--font-ui);
 }
 
-.blk-rule { stroke: var(--ink); stroke-width: 1.4; }
+.blk-rule { stroke: var(--ink); stroke-width: var(--rulew, 1.4); }
 
 g.blk { cursor: default; }
 
@@ -673,9 +712,10 @@ g.blk:hover .blk-rule { stroke: var(--flag); }
   position: relative;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  flex: 1 1 360px;
+  min-width: min(360px, 100%);
+  max-width: 620px;
   min-height: 0;
-  max-height: var(--avail);
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: 3px;
@@ -696,8 +736,9 @@ h2 {
 
 .chart {
   display: block;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   width: 100%;
+  max-width: 680px;
   height: auto;
   min-height: 0;
   margin: 10px 0 0;
@@ -764,35 +805,62 @@ h3 {
 
 .empty { margin: 0; padding: 40px 0; color: var(--ink-muted); max-width: 52ch; }
 
-@media (max-width: 1200px) {
-  .map { flex-direction: column; }
-  .map-key {
-    width: auto;
-    align-self: stretch;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 7px 15px;
-    margin-top: 10px;
-  }
-  .readout { flex: 1 1 190px; height: 52px; margin-top: 0; }
-  .key.start-singles { margin-top: 0; }
+/* Stacked: the map takes the full width at the top of a page that scrolls. That
+   is the better arrangement whenever the column it would otherwise share is what
+   limits the array, and which of the two that is depends on the array's own
+   proportions as much as on the window's -- a wide array is starved by a column
+   long before a tall one is. So the choice is measured on load and on resize
+   rather than fixed at a width; see the fit script. */
+.stack .sheet { min-height: 0; }
+
+.stack .layout { flex-direction: column; flex: 0 0 auto; }
+
+.stack .map {
+  order: -1;
+  width: 100%;
+  max-width: 100%;
+  height: min(80dvh, 1000px);
+  min-height: 360px;
 }
 
-@media (max-width: 820px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
-  .counts, .map { max-height: none; }
-  .map { flex-direction: column; gap: 0; }
+.stack .counts { max-width: none; min-width: 0; flex: 0 0 auto; }
+
+/* With no scripting nothing gets measured, so stack at the widths where it is
+   nearly always the right answer and leave the rest side by side. */
+html:not(.js) .sheet { min-height: 0; }
+
+@media (max-width: 900px) {
+  html:not(.js) .layout { flex-direction: column; flex: 0 0 auto; }
+  html:not(.js) .map {
+    order: -1;
+    width: 100%;
+    max-width: 100%;
+    height: min(80dvh, 1000px);
+    min-height: 360px;
+  }
+  html:not(.js) .counts { max-width: none; min-width: 0; flex: 0 0 auto; }
+}
+
+/* Narrow enough that the legend beside the array costs it more width than the
+   legend is worth, so the legend drops underneath. */
+@media (max-width: 640px) {
+  .map, .stack .map {
+    flex-direction: column;
+    gap: 0;
+    height: min(84dvh, 860px);
+  }
   .map-key {
     width: auto;
     align-self: stretch;
+    flex: none;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 16px;
-    margin-top: 11px;
+    margin-top: 10px;
   }
-  .counts { max-width: 100%; }
+  .readout { flex: 1 1 180px; height: 52px; margin-top: 0; }
+  .key.start-singles { margin-top: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -969,51 +1037,62 @@ def _group_ranges(groups, min_count, heading, x_of, flag_low):
     )
 
 
-# Sizes the sheet to the window. The header's figure strip wraps at narrow
-# widths, so no fixed offset holds -- the room below it is measured instead.
-# The map is then given a height the column can actually accommodate: if the
-# column is narrower than that height's width, the height comes back down, so a
-# spot stays square whatever the window's aspect ratio.
+# Reports the room below the header to CSS as --avail and picks between the two
+# arrangements of the panels. The figure strip wraps at narrow widths, so no
+# fixed offset holds and the header is measured instead. Sizing itself is CSS's
+# job from there: the map panel asks for the width its ratio and that height
+# imply, and the SVG fits itself to whatever box it ends up with.
 _FIT_JS = """
 (function () {
+  var root = document.documentElement;
   var layout = document.querySelector('.layout');
-  var chip = document.querySelector('.chip');
-  var plot = document.querySelector('.plot');
-  var map = document.querySelector('.map');
-  var mkey = document.querySelector('.map-key');
+  var svg = document.getElementById('chip');
+  var VW = __FITVW__, VH = __FITVH__;
+  // Chrome the map panel puts around the array: across, the legend column with
+  // its gap, the panel padding and the border; down, that padding and border.
+  // Kept in step with --key-w and .map's padding in the stylesheet.
+  var KEY = 228, PADY = 22;
+
+  root.classList.add('js');
   if (!layout) return;
-  var RATIO = __RATIO__, VW = __FITVW__, root = document.documentElement;
 
   function fit() {
     var top = layout.getBoundingClientRect().top + (window.scrollY || 0);
-    var room = Math.max(260, window.innerHeight - top - 28);
+    var room = Math.max(300, window.innerHeight - top - 22);
     root.style.setProperty('--avail', room + 'px');
-    if (!chip || !plot) return;
 
-    // When the legend drops below the map it takes height the array can no
-    // longer use, so it is measured rather than assumed.
-    var chrome = 56;
-    if (map && mkey && getComputedStyle(map).flexDirection === 'column') {
-      chrome += mkey.offsetHeight + 12;
-    }
-    var h = Math.max(200, Math.min(room - chrome, 900));
-    chip.style.setProperty('--plot-h', h + 'px');
-    var w = plot.getBoundingClientRect().width;
-    if (w > 0 && w < h * RATIO - 0.5) {
-      chip.style.setProperty('--plot-h', (w / RATIO).toFixed(2) + 'px');
-      w = plot.getBoundingClientRect().width;
-    }
+    // Side by side and stacked are both worked out at the size the array would
+    // come to, and the larger wins. A width alone cannot answer this: at the
+    // same window a wide array does better stacked and a tall one does better
+    // beside the charts. The margin keeps a near tie from flipping on a resize.
+    var W = layout.clientWidth;
+    var cmin = parseFloat(
+      getComputedStyle(root).getPropertyValue('--charts-min')) || 396;
+    var beside = Math.min(room * (VW / VH) + KEY, W - cmin) - KEY;
+    var side = Math.min(beside / VW, (room - PADY) / VH);
+    var stacked = Math.min(window.innerHeight * 0.8, 1000) - PADY;
+    var stack = Math.min((W - KEY) / VW, stacked / VH);
+    root.classList.toggle('stack', stack > side * 1.02);
 
-    // Everything in the map scales with it, so the axis text is sized in grid
-    // units that cancel that scale out. Without this a small window renders the
-    // row and column labels at a few pixels.
-    var svg = document.getElementById('chip');
-    if (svg && w > 0) {
-      var k = w / VW;
-      var clamp = function (px) { return Math.min(Math.max(px / k, px), px * 1.6); };
-      svg.style.setProperty('--axfs', clamp(11).toFixed(2) + 'px');
-      svg.style.setProperty('--blkfs', clamp(12).toFixed(2) + 'px');
-    }
+    // Everything in the map scales with it, so the axis and block text is sized
+    // in grid units that cancel that scale out and leave it the same size on
+    // screen at any window. Without this the labels come out at a few pixels on
+    // a small window and oversized on a large one. The unit bounds keep the
+    // text inside the padding the labels are drawn in. Reading the box here
+    // also settles the reflow the lines above just asked for.
+    if (!svg) return;
+    var b = svg.getBoundingClientRect();
+    if (!b.width || !b.height) return;
+    var k = Math.min(b.width / VW, b.height / VH);
+    var fit = function (px, lo, hi) {
+      return Math.min(Math.max(px / k, lo || 6), hi || 20).toFixed(2) + 'px';
+    };
+    svg.style.setProperty('--axfs', fit(12));
+    svg.style.setProperty('--blkfs', fit(13.5));
+    // Strokes are in grid units too, so they need the same treatment or the
+    // ticks come out as heavy dashes on a large map and vanish on a small one.
+    svg.style.setProperty('--tickw', fit(1.1, 0.45, 2));
+    svg.style.setProperty('--rulew', fit(1.6, 0.7, 2.6));
   }
 
   fit();
@@ -1310,8 +1389,8 @@ def generate_dashboard(print_array, metrics, project_name, export_dir,
             'n': html_escape(v),
             'g': html_escape(cat_of[v]) if cat_of else '',
         }
-    fit_js = (_FIT_JS.replace('__RATIO__', f'{view_w / view_h:.6f}')
-              .replace('__FITVW__', f'{view_w:g}'))
+    fit_js = (_FIT_JS.replace('__FITVW__', f'{view_w:g}')
+              .replace('__FITVH__', f'{view_h:g}'))
     refresh_js = _REFRESH_JS.replace('__SECS__', str(int(refresh or 0)))
     map_js = (
         _MAP_JS.replace('__C__', str(n_cols))
