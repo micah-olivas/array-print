@@ -21,7 +21,9 @@ from .utils import (
     write_fld,
     display_fld,
     get_96_to_384,
-    fill_array
+    fill_array,
+    parse_fld,
+    fld_to_pinlist,
 )
 
 from .viz import (
@@ -31,6 +33,8 @@ from .viz import (
     plot_array_heatmap,
     modify_array_column,
     plot_replicate_histogram,
+    plot_library_panels,
+    plot_array_map,
     generate_dashboard,
 )
 
@@ -45,6 +49,8 @@ __all__ = [
     "display_fld",
     "get_96_to_384",
     "fill_array",
+    "parse_fld",
+    "fld_to_pinlist",
     # Visualization
     "plot_mutant_frequency",
     "plot_mutant_position",
@@ -52,5 +58,7 @@ __all__ = [
     "plot_array_heatmap",
     "modify_array_column",
     "plot_replicate_histogram",
+    "plot_library_panels",
+    "plot_array_map",
     "generate_dashboard",
 ]

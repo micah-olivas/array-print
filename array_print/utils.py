@@ -9,40 +9,60 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
+
+from .fld_format import FOOTER, HEADERS
 from pathlib import Path
 
 
-def fill_array(df, temp_array, catalytic_binning=False):
+def fill_array(df, temp_array, catalytic_binning=False, rng=None):
     """
-    Fill an array uniformly with values from a dataframe.
-    
+    Fill an array with the library, giving every member an equal share.
+
+    Each library member is dealt the same number of chambers, differing by at
+    most one where the library does not divide the array evenly. The previous
+    behaviour drew a member at random for every chamber independently, which
+    left replicate counts to chance -- a 47-member library in 896 chambers came
+    out anywhere between 11 and 34 replicates apiece instead of the 19 the
+    arithmetic calls for.
+
     Args:
         df: DataFrame containing plate well information
         temp_array: Array to fill with values
-        catalytic_binning: If True, sort by catalytic rank
-    
+        catalytic_binning: If True, order the fill by catalytic rank rather
+            than scattering members across the array
+        rng: Optional numpy Generator, so a run can be reproduced
+
     Returns:
         Filled array
     """
-    # randomize order of df
-    df = df.sample(frac=1).reset_index(drop=True)
+    if rng is None:
+        rng = np.random.default_rng()
 
-    # sort df by catalytic rank if 'catalytic_binning' == True
-    if catalytic_binning:
-        # sort df by cat_rank
-        df = df.sort_values(by='cat_rank', ascending=True)
+    n_slots = len(temp_array)
+    if 'plate_well' not in df.columns or df.empty or n_slots == 0:
+        temp_array[:] = ''
+        return temp_array
 
-    # iterate over array and fill with values from df
-    for i in range(len(temp_array)):
-        try:
-            # randomly sample a value from df and store the Well value
-            value = df.sample(n=1)['plate_well'].values[0]
+    if catalytic_binning and 'cat_rank' in df.columns:
+        members = df.sort_values(by='cat_rank', ascending=True)['plate_well'].tolist()
+    else:
+        members = df['plate_well'].tolist()
+        # Which members collect the odd extra chamber is arbitrary, so the order
+        # is shuffled rather than following the order of the input file.
+        rng.shuffle(members)
 
-            # add to temp_array
-            temp_array[i] = value
-        except:
-            temp_array[i] = ''
+    base, extra = divmod(n_slots, len(members))
+    pool = []
+    for i, member in enumerate(members):
+        pool.extend([member] * (base + (1 if i < extra else 0)))
 
+    # Binning keeps rank order across the device; otherwise members are spread
+    # so that replicates of one variant do not sit together.
+    if not catalytic_binning:
+        rng.shuffle(pool)
+
+    for i in range(n_slots):
+        temp_array[i] = pool[i] if i < len(pool) else ''
     return temp_array
 
 
@@ -151,37 +171,190 @@ def display_fld(print_df, total_columns, total_rows):
             print(current_fld_loc + '\t' + array_loc_print + ',' + '\t' + '1,')
 
 
-def write_fld(filename, print_df, total_columns, total_rows, export_dir):
+def write_fld(filename, print_df, total_columns, total_rows, export_dir,
+              device=None):
     """
-    Write FLD file to disk.
-    
+    Write a Scienion .fld file to disk.
+
+    With ``device`` given, the file carries the header and footer the instrument
+    needs, written CRLF in cp1252 -- a bare list of positions is not read by the
+    Scienion software. Without it, the older bare format is written unchanged,
+    so existing workflows are unaffected.
+
     Args:
         filename: Base filename for the FLD file
         print_df: DataFrame containing print array
         total_columns: Number of columns in array
         total_rows: Number of rows in array
         export_dir: Directory to save the file
+        device: Device key from ``fld_format.HEADERS`` (for example "PS1.8K")
+
+    Returns:
+        Path to the written file.
     """
     timestamp = datetime.now().strftime('%Y_%m_%d__%H_%M_%S')
-    
-    with open(os.path.join(export_dir, filename + '_' + timestamp + '.fld'), 'w') as f:
-        for i in range(0, total_columns):
-            for j in range(0, total_rows):
-                current_fld_loc = str(i + 1) + '/' + str(j + 1) # add ones to change from 0-indexing
-                current_array_val = str(print_df.iloc[j][i])
+    path = os.path.join(export_dir, filename + '_' + timestamp + '.fld')
 
-                # Insert blank for NaN values
-                if type(current_array_val) != str:
-                    current_array_val = '\t'
+    if device is not None and device not in HEADERS:
+        raise ValueError(
+            f"unknown device {device!r}; known devices: {', '.join(HEADERS)}"
+        )
 
-                array_loc_print = current_array_val
-                
-                # Add a plate number to only the non-blank wells
-                if len(array_loc_print) >= 1:
-                    if array_loc_print[0] != '1':
-                        array_loc_print = '1' + array_loc_print
+    lines = []
+    for i in range(0, total_columns):
+        for j in range(0, total_rows):
+            location = f'{i + 1}/{j + 1}'
+            value = print_df.iloc[j][i]
+            well = str(value) if isinstance(value, str) else ''
 
-                f.write(current_fld_loc + '\t' + array_loc_print + ',' + '\t' + '1,' + '\n')
+            if well:
+                # Wells are named with their plate number; add it when the
+                # library supplied a bare well.
+                if well[0] != '1':
+                    well = '1' + well
+                spots = len(well.split(','))
+                lines.append(f'{location}	{well},	{"1," * spots}')
+            else:
+                # An empty chamber carries no well and no drop count; the older
+                # writer emitted a stray comma and a drop here.
+                lines.append(f'{location}		')
+
+    if device is None:
+        with open(path, 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+        return path
+
+    body = '\r\n'.join([HEADERS[device]] + lines + [FOOTER])
+    with open(path, 'wt', encoding='cp1252', newline='') as f:
+        f.write(body)
+
+    _check_fld(path)
+    return path
+
+
+def _check_fld(path):
+    """
+    Confirm the bytes the instrument looks for survived the write.
+
+    Mirrors the checks in the FordyceLab fork: the file ends CRLF, the header's
+    volume line still carries a cp1252 micro sign, and the footer line still
+    opens with a section sign.
+    """
+    with open(path, 'rb') as f:
+        data = f.read()
+
+    crlf = bytearray([0x0D, 0x0A])
+    if data[-2:] != crlf:
+        raise ValueError(f'{path}: file does not end with CRLF')
+
+    rows = data.split(crlf)
+    if rows[20][8] != 0xB5:
+        raise ValueError(f'{path}: header volume line lost its micro sign')
+    if rows[-2][0] != 0xA7:
+        raise ValueError(f'{path}: footer line lost its section sign')
+
+
+def parse_fld(fld_path, encoding="windows-1252"):
+    """
+    Parse a Scienion .fld file into a DataFrame.
+
+    Handles both simple .fld files (generated by this package) and full Scienion
+    exports with headers/footers. Lines starting with a digit are treated as data.
+
+    Args:
+        fld_path: Path to the .fld file
+        encoding: File encoding (default: windows-1252 for Scienion files)
+
+    Returns:
+        DataFrame with columns: location (str "col/row"), well_id (str), drops (int)
+    """
+    with open(fld_path, encoding=encoding) as f:
+        raw_lines = f.read().split('\n')
+
+    rows = []
+    for line in raw_lines:
+        line = line.strip('\r')
+        if not line or not line[0].isdigit():
+            continue
+
+        parts = line.split('\t')
+        if len(parts) < 3:
+            continue
+
+        location = parts[0]                       # e.g. "1/1"
+        well_id = parts[1].replace(',', '').strip()  # e.g. "1A22" or ""
+        drops_raw = parts[2].replace(',', '').strip()
+        drops = int(drops_raw) if drops_raw.isdigit() else 1
+
+        rows.append({
+            'location': location,
+            'well_id': well_id,
+            'drops': drops,
+        })
+
+    return pd.DataFrame(rows)
+
+
+def fld_to_pinlist(fld_path, library_csv, encoding="windows-1252", output=None):
+    """
+    Convert a .fld file to a pinlist DataFrame using a library mapping CSV.
+
+    The library CSV should contain columns that identify each variant's well position
+    and name. Accepts either a pre-built 'plate_well' column or separate 'Plate' and
+    'Well' columns (which are combined automatically).
+
+    Args:
+        fld_path: Path to the .fld file
+        library_csv: Path to library CSV with Plate/Well/Name columns
+        encoding: Encoding for the .fld file (default: windows-1252)
+        output: Optional output file path. If ends with .xlsx, exports Excel;
+                otherwise exports CSV. If None, no file is written.
+
+    Returns:
+        DataFrame with columns: Indices (tuple), MutantID (str), OriginalWell (str)
+    """
+    # Parse the .fld file
+    fld_df = parse_fld(fld_path, encoding=encoding)
+
+    # Load and prepare library mapping
+    library_df = pd.read_csv(library_csv)
+    if 'plate_well' not in library_df.columns and {'Plate', 'Well'}.issubset(library_df.columns):
+        library_df = library_df.dropna(subset=['Plate', 'Well'])
+        library_df['plate_well'] = library_df['Plate'].astype(int).astype(str) + library_df['Well'].astype(str)
+
+    # Build well → name lookup
+    name_col = 'Name' if 'Name' in library_df.columns else 'member_name'
+    well_to_name = library_df.drop_duplicates('plate_well').set_index('plate_well')[name_col].to_dict()
+
+    # Map each .fld entry to a pinlist row
+    pinlist_rows = []
+    for _, row in fld_df.iterrows():
+        col_str, row_str = row['location'].split('/')
+        indices = (int(col_str), int(row_str))
+        well_id = row['well_id']
+
+        if well_id:
+            mutant_id = well_to_name.get(well_id, 'BLANK')
+        else:
+            mutant_id = 'BLANK'
+
+        pinlist_rows.append({
+            'Indices': indices,
+            'MutantID': mutant_id,
+            'OriginalWell': well_id,
+        })
+
+    pinlist_df = pd.DataFrame(pinlist_rows)
+
+    # Export if output path provided
+    if output is not None:
+        output = str(output)
+        if output.endswith('.xlsx'):
+            pinlist_df.to_excel(output, index=False)
+        else:
+            pinlist_df.to_csv(output, index=False)
+
+    return pinlist_df
 
 
 def create_project_directory(project_name, custom_dir=None):
@@ -284,8 +457,9 @@ def print_metrics_summary(metrics):
     print("=" * 50)
 
 
-def generate_print_array(library_df, columns=32, rows=56, skip_rows=True, 
-                        using_blocked_device=True, n_blocks=4, catalytic_binning=False):
+def generate_print_array(library_df, columns=32, rows=56, skip_rows=True,
+                        using_blocked_device=True, n_blocks=4,
+                        catalytic_binning=False, seed=0):
     """
     Generate optimized print array from library dataframe.
     
@@ -297,10 +471,13 @@ def generate_print_array(library_df, columns=32, rows=56, skip_rows=True,
         using_blocked_device: Whether to use block-based assignment
         n_blocks: Number of blocks to divide array into
         catalytic_binning: Whether to sort by catalytic rank
-    
+        seed: Seed for the placement, so the same library and settings always
+            produce the same layout. Pass None for a different layout each run.
+
     Returns:
         numpy array containing print layout
     """
+    rng = np.random.default_rng(seed)
     # Set size of device
     if skip_rows:
         rows = int(rows / 2)  # data rows = half the physical rows
@@ -310,6 +487,8 @@ def generate_print_array(library_df, columns=32, rows=56, skip_rows=True,
 
     # Get max replicates for each mutant
     num_sequences = len(library_df['Name'].unique())
+    if num_sequences == 0:
+        raise ValueError('library has no entries in its Name column')
     max_replicates = int(total_chambers / num_sequences)  # round down to nearest integer
 
     # Create print array object of strings (1D; reshape happens after fill)
@@ -328,7 +507,7 @@ def generate_print_array(library_df, columns=32, rows=56, skip_rows=True,
             block_array = np.empty(int(rows * (columns / n_blocks)), dtype='object')
 
             # Fill array with values from block_df
-            block_array = fill_array(block_df, block_array, catalytic_binning)
+            block_array = fill_array(block_df, block_array, catalytic_binning, rng)
 
             # Reshape block_array into 2D
             block_array = block_array.reshape(int(rows), columns // n_blocks)
@@ -339,7 +518,7 @@ def generate_print_array(library_df, columns=32, rows=56, skip_rows=True,
         # Join the blocks together
         print_array = np.concatenate(list(block_dict.values()), axis=1)
     else:
-        print_array = fill_array(library_df, print_array, catalytic_binning)
+        print_array = fill_array(library_df, print_array, catalytic_binning, rng)
         print_array = print_array.reshape(total_chambers // columns, columns)
 
     # Add blank rows to print array
